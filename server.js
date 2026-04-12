@@ -267,3 +267,67 @@ app.listen(CONFIG.PORT, () => {
 });
 
 module.exports = app;
+const express = require('express');
+const axios = require('axios');
+const crypto = require('crypto');
+const app = express();
+
+app.use(express.json());
+
+// El bot lee tus llaves desde las variables de Railway que ya configuraste
+const API_KEY = process.env.API_KEY;
+const API_SECRET = process.env.API_SECRET;
+const WEBHOOK_PASSPHRASE = process.env.PASSPHRASE; 
+const BYBIT_URL = 'https://api.bybit.com'; // Cambiar a api-testnet.bybit.com si usas testnet
+
+function createSignature(params, secret) {
+    return crypto.createHmac('sha256', secret).update(params).digest('hex');
+}
+
+app.post('/webhook', async (req, res) => {
+    const data = req.body;
+    console.log('[INFO] Webhook recibido:', JSON.stringify(data));
+
+    // VALIDACIÓN DE SEGURIDAD
+    if (data.passphrase !== WEBHOOK_PASSPHRASE) {
+        console.error('[ERROR] Passphrase incorrecta');
+        return res.status(401).send('No autorizado');
+    }
+
+    // PREPARACIÓN DE LA ORDEN PARA BYBIT (V5)
+    const timestamp = Date.now().toString();
+    const recvWindow = "5000";
+    const payload = JSON.stringify({
+        category: "linear", // Para futuros/perpetuos. Cambiar a "spot" si es cuenta spot.
+        symbol: data.symbol || "BTCUSDT",
+        side: data.action === 'buy' ? 'Buy' : 'Sell',
+        orderType: "Market",
+        qty: data.quantity.toString()
+    });
+
+    const paramStr = timestamp + API_KEY + recvWindow + payload;
+    const signature = createSignature(paramStr, API_SECRET);
+
+    // ENVÍO DE LA ORDEN A BYBIT
+    try {
+        const response = await axios.post(`${BYBIT_URL}/v5/order/create`, payload, {
+            headers: {
+                'X-BAPI-API-KEY': API_KEY,
+                'X-BAPI-SIGN-HEADER': signature,
+                'X-BAPI-TIMESTAMP': timestamp,
+                'X-BAPI-RECV-WINDOW': recvWindow,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        // ESTO ES LO QUE BUSCAS: La respuesta de Bybit en tus logs
+        console.log('[SUCCESS] Respuesta de Bybit:', JSON.stringify(response.data));
+        res.status(200).json(response.data);
+    } catch (error) {
+        console.error('[ERROR] Fallo en Bybit:', error.response ? error.response.data : error.message);
+        res.status(500).send('Error en la ejecución');
+    }
+});
+
+const PORT = process.env.PORT || 8080;
+app.listen(PORT, () => console.log(`⚡ TradeBot activo en puerto ${PORT}`));
