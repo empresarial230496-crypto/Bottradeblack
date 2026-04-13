@@ -9,8 +9,8 @@ app.use(express.json());
 app.use(express.static(__dirname));
 
 // ── Config ────────────────────────────────────────────────
-const API_KEY    = process.env.API_KEY    || 'ps0SaqEpyqnmHeoI8X';
-const API_SECRET = process.env.API_SECRET || 'SfNRQZFmhRMrqHpRTIoJhJzvvN0C98LpdnM8';
+const API_KEY = 'ps0SaqEpyqnmHeoI8X';
+const API_SECRET = 'SfNRQZFmhRMrqHpRTIoJhJzvvN0C98LpdnM8';
 const PASSPHRASE = process.env.PASSPHRASE || 'edgarbot2026';
 const TESTNET    = false; // CUENTA REAL
 const PORT       = process.env.PORT || 8080;
