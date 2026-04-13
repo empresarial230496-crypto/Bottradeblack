@@ -8,20 +8,19 @@ const app = express();
 app.use(express.json());
 app.use(express.static(__dirname));
 
-const API_KEY    = process.env.API_KEY    || process.env.BIBYT_API_KEY    || '';
-const API_SECRET = process.env.API_SECRET || process.env.BIBYT_API_SECRET || '';
-const PASSPHRASE = process.env.PASSPHRASE || '';
-const TESTNET    = process.env.TESTNET !== 'false';
+// ── Config ────────────────────────────────────────────────
+const API_KEY    = process.env.API_KEY    || 'ps0SaqEpyqnmHeoI8X';
+const API_SECRET = process.env.API_SECRET || 'SfNRQZFmhRMrqHpRTIoJhJzvvN0C98LpdnM8';
+const PASSPHRASE = process.env.PASSPHRASE || 'edgarbot2026';
+const TESTNET    = false; // CUENTA REAL
 const PORT       = process.env.PORT || 8080;
+const BASE_URL   = 'https://api.bybit.com';
 
-const BASE_URL = TESTNET
-  ? 'https://api-testnet.bybit.com'
-  : 'https://api.bybit.com';
-
-console.log(`[CONFIG] Testnet: ${false}`);
-console.log(`[CONFIG] API Key: ${ps0SaqEpyqnmHeoI8X} ? '✓ OK'}`);
+console.log(`[CONFIG] Testnet: ${TESTNET}`);
+console.log(`[CONFIG] API Key: ${API_KEY ? '✓ OK' : '⚠️ FALTA'}`);
 console.log(`[CONFIG] Base URL: ${BASE_URL}`);
 
+// ── Firma Bybit V5 ────────────────────────────────────────
 function bybitHeaders(payload) {
   const timestamp  = Date.now().toString();
   const recvWindow = '5000';
@@ -32,6 +31,22 @@ function bybitHeaders(payload) {
     .digest('hex');
   return {
     'Content-Type':       'application/json',
+    'X-BAPI-API-KEY':     API_KEY,
+    'X-BAPI-TIMESTAMP':   timestamp,
+    'X-BAPI-RECV-WINDOW': recvWindow,
+    'X-BAPI-SIGN':        signature,
+  };
+}
+
+function bybitGetHeaders(queryStr) {
+  const timestamp  = Date.now().toString();
+  const recvWindow = '5000';
+  const signStr    = timestamp + API_KEY + recvWindow + queryStr;
+  const signature  = crypto
+    .createHmac('sha256', API_SECRET)
+    .update(signStr)
+    .digest('hex');
+  return {
     'X-BAPI-API-KEY':     API_KEY,
     'X-BAPI-TIMESTAMP':   timestamp,
     'X-BAPI-RECV-WINDOW': recvWindow,
@@ -50,26 +65,15 @@ async function placeOrder(orderParams) {
 }
 
 async function getBalanceData() {
-  const timestamp  = Date.now().toString();
-  const recvWindow = '5000';
-  const queryStr   = 'accountType=UNIFIED';
-  const signStr    = timestamp + API_KEY + recvWindow + queryStr;
-  const signature  = crypto
-    .createHmac('sha256', API_SECRET)
-    .update(signStr)
-    .digest('hex');
+  const queryStr = 'accountType=UNIFIED';
   const response = await axios.get(
     `${BASE_URL}/v5/account/wallet-balance?${queryStr}`,
-    { headers: {
-        'X-BAPI-API-KEY':     API_KEY,
-        'X-BAPI-TIMESTAMP':   timestamp,
-        'X-BAPI-RECV-WINDOW': recvWindow,
-        'X-BAPI-SIGN':        signature,
-    }}
+    { headers: bybitGetHeaders(queryStr) }
   );
   return response.data;
 }
 
+// ── Estado del bot ────────────────────────────────────────
 const botState = {
   running: false,
   config: null,
@@ -86,6 +90,7 @@ function log(type, msg) {
   console.log(`[${entry.time}][${type.toUpperCase()}] ${msg}`);
 }
 
+// ── Rutas ─────────────────────────────────────────────────
 app.get('/', (_, res) =>
   res.sendFile(path.join(__dirname, 'index.html'))
 );
@@ -130,11 +135,6 @@ app.post('/webhook', async (req, res) => {
     return res.status(401).json({ ok: false, error: 'No autorizado' });
   }
 
-  if (!API_KEY || !API_SECRET) {
-    log('err', 'API Key falta');
-    return res.status(500).json({ ok: false, error: 'API Key no configurada' });
-  }
-
   log('info', `Intentando orden: ${data.action} ${data.symbol} qty:${data.quantity}`);
 
   try {
@@ -168,10 +168,9 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
+// ── Iniciar bot autónomo ──────────────────────────────────
 app.post('/api/start', (req, res) => {
   const cfg = req.body;
-  if (!API_KEY || !API_SECRET)
-    return res.json({ ok: false, error: 'Faltan API keys en Railway Variables' });
   if (!cfg.pairs?.length)
     return res.json({ ok: false, error: 'Selecciona al menos un par' });
 
@@ -179,7 +178,7 @@ app.post('/api/start', (req, res) => {
   botState.running = true;
   botState.stats   = { wins: 0, losses: 0, pnl: 0, trades: [] };
 
-  log('ok', `Bot iniciado — ${TESTNET ? 'TESTNET' : '⚠️  REAL'}`);
+  log('ok', `Bot iniciado — REAL 💰`);
   log('info', `Pares: ${cfg.pairs.join(', ')} | TP:${cfg.tp}% SL:${cfg.sl}% Lev:${cfg.leverage}x`);
 
   runScan();
@@ -199,6 +198,7 @@ app.post('/api/stop', async (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Trading Logic ─────────────────────────────────────────
 async function runScan() {
   if (!botState.running) return;
   const cfg  = botState.config;
@@ -226,22 +226,9 @@ async function runScan() {
 }
 
 async function getIndicators(pair) {
-  const timestamp  = Date.now().toString();
-  const recvWindow = '5000';
-  const queryStr   = `category=linear&symbol=${pair}&interval=15&limit=60`;
-  const signStr    = timestamp + API_KEY + recvWindow + queryStr;
-  const signature  = crypto
-    .createHmac('sha256', API_SECRET)
-    .update(signStr)
-    .digest('hex');
-
+  const queryStr = `category=linear&symbol=${pair}&interval=15&limit=60`;
   const r = await axios.get(`${BASE_URL}/v5/market/kline?${queryStr}`, {
-    headers: {
-      'X-BAPI-API-KEY':     API_KEY,
-      'X-BAPI-TIMESTAMP':   timestamp,
-      'X-BAPI-RECV-WINDOW': recvWindow,
-      'X-BAPI-SIGN':        signature,
-    }
+    headers: bybitGetHeaders(queryStr)
   });
 
   if (r.data.retCode !== 0) throw new Error(r.data.retMsg);
@@ -263,13 +250,15 @@ async function executeTrade(side, symbol, price) {
   try {
     await placeOrder({
       category: 'linear', symbol,
-      buyLeverage: String(cfg.leverage),
+      buyLeverage:  String(cfg.leverage),
       sellLeverage: String(cfg.leverage),
     });
   } catch (_) {}
 
   const result = await placeOrder({
-    category: 'linear', symbol, side,
+    category:    'linear',
+    symbol,
+    side,
     orderType:   'Market',
     qty:         String(qty),
     takeProfit:  String(tp),
@@ -279,53 +268,30 @@ async function executeTrade(side, symbol, price) {
   });
 
   if (result.retCode !== 0) {
-    log('err', `Orden rechazada: ${result.retMsg}`);
+    log('err', `Orden rechazada: ${result.retMsg} (${result.retCode})`);
     return;
   }
 
-  botState.currentPosition = {
-    orderId: result.result.orderId,
-    symbol, side, entry: price, qty, tp, sl,
-  };
+  botState.currentPosition = { orderId: result.result.orderId, symbol, side, entry: price, qty, tp, sl };
   log('ok', `✅ ${side} ${symbol} qty:${qty} TP:$${tp} SL:$${sl}`);
   monitorPosition(botState.currentPosition);
 }
 
 async function monitorPosition(pos) {
   const monitor = setInterval(async () => {
-    if (!botState.running || !botState.currentPosition) {
-      clearInterval(monitor); return;
-    }
+    if (!botState.running || !botState.currentPosition) { clearInterval(monitor); return; }
     try {
-      const timestamp  = Date.now().toString();
-      const recvWindow = '5000';
-      const queryStr   = `category=linear&symbol=${pos.symbol}`;
-      const signStr    = timestamp + API_KEY + recvWindow + queryStr;
-      const signature  = crypto
-        .createHmac('sha256', API_SECRET)
-        .update(signStr)
-        .digest('hex');
-
+      const queryStr = `category=linear&symbol=${pos.symbol}`;
       const r = await axios.get(`${BASE_URL}/v5/position/list?${queryStr}`, {
-        headers: {
-          'X-BAPI-API-KEY':     API_KEY,
-          'X-BAPI-TIMESTAMP':   timestamp,
-          'X-BAPI-RECV-WINDOW': recvWindow,
-          'X-BAPI-SIGN':        signature,
-        }
+        headers: bybitGetHeaders(queryStr)
       });
-
       const p = r.data.result?.list?.find(x => x.symbol === pos.symbol);
       if (!p || parseFloat(p.size) === 0) {
         const pnl = parseFloat(p?.cumRealisedPnl || 0);
         botState.stats.pnl += pnl;
         pnl >= 0 ? botState.stats.wins++ : botState.stats.losses++;
-        log(pnl >= 0 ? 'ok' : 'err',
-          `${pnl >= 0 ? '✅ TP' : '❌ SL'} — ${pnl.toFixed(3)} USDT`);
-        botState.stats.trades.unshift({
-          side: pos.side, symbol: pos.symbol,
-          pnl, time: new Date().toLocaleTimeString(),
-        });
+        log(pnl >= 0 ? 'ok' : 'err', `${pnl >= 0 ? '✅ TP' : '❌ SL'} — ${pnl.toFixed(3)} USDT`);
+        botState.stats.trades.unshift({ side: pos.side, symbol: pos.symbol, pnl, time: new Date().toLocaleTimeString() });
         botState.currentPosition = null;
         clearInterval(monitor);
       }
@@ -336,26 +302,19 @@ async function monitorPosition(pos) {
 async function closePosition(pos) {
   try {
     await placeOrder({
-      category:  'linear',
-      symbol:    pos.symbol,
+      category: 'linear', symbol: pos.symbol,
       side:      pos.side === 'Buy' ? 'Sell' : 'Buy',
-      orderType: 'Market',
-      qty:       String(pos.qty),
-      reduceOnly: true,
+      orderType: 'Market', qty: String(pos.qty), reduceOnly: true,
     });
     log('warn', `Posición ${pos.symbol} cerrada`);
-  } catch (e) {
-    log('err', `Error cierre: ${e.message}`);
-  }
+  } catch (e) { log('err', `Error cierre: ${e.message}`); }
 }
 
 app.get('/api/indicators/:pair', async (req, res) => {
   try {
     const data = await getIndicators(req.params.pair);
     res.json({ ok: true, ...data });
-  } catch (e) {
-    res.json({ ok: false, error: e.message });
-  }
+  } catch (e) { res.json({ ok: false, error: e.message }); }
 });
 
 function calcRSI(closes, period = 14) {
@@ -372,17 +331,14 @@ function calcRSI(closes, period = 14) {
 function calcEMA(closes, period) {
   const k = 2 / (period + 1);
   let ema = closes[0];
-  for (let i = 1; i < closes.length; i++)
-    ema = closes[i] * k + ema * (1 - k);
+  for (let i = 1; i < closes.length; i++) ema = closes[i] * k + ema * (1 - k);
   return ema;
 }
 
-function calcMACD(closes) {
-  return calcEMA(closes, 12) - calcEMA(closes, 26);
-}
+function calcMACD(closes) { return calcEMA(closes, 12) - calcEMA(closes, 26); }
 
 app.listen(PORT, () =>
-  console.log(`\n⚡ TradeBot corriendo en puerto ${PORT} — ${TESTNET ? 'TESTNET' : 'REAL'}\n`)
+  console.log(`\n⚡ TradeBot corriendo en puerto ${PORT} — REAL 💰\n`)
 );
 
 module.exports = app;
