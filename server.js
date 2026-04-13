@@ -19,7 +19,7 @@ const BASE_URL = TESTNET
   : 'https://api.bybit.com';
 
 console.log(`[CONFIG] Testnet: ${false}`);
-console.log(`[CONFIG] API Key: ${ps0SaqEpyqnmHeoI8X ? '✓ OK' : '⚠️  FALTA'}`);
+console.log(`[CONFIG] API Key: ${ps0SaqEpyqnmHeoI8X} ? '✓ OK'}`);
 console.log(`[CONFIG] Base URL: ${BASE_URL}`);
 
 function bybitHeaders(payload) {
